@@ -1,0 +1,169 @@
+SQL Homework Week 6, Heather Leighton-Dick
+
+1. Show all customers whose last names start with T. Order them by first name from A-Z.
+
+SELECT first_name, last_name
+FROM customer
+WHERE last_name LIKE 'T%'
+ORDER BY first_name;
+
+--The SELECT statement pulls the first_name and last-name columns in full from the customer table. The WHERE statement iterates through the last_name column and pulls all the rows where the last name begins with a capital T and has some characters following it (which is what the pattern identifier 'T%' does). Finally, the ORDER BY statement alphabetizes the results of the WHERE statement.
+
+2. Show all rentals returned from 5/28/2005 to 6/1/2005.
+
+SELECT return_date
+FROM rental
+WHERE return_date
+BETWEEN '2005-05-28 00:00:01'  AND '2005-06-01 11:59:59';
+
+--The SELECT statement pulls the return_date column from the rental table, and the WHERE/BETWEEN statements set parameters for qualifying rows. It's important for the date format in the BETWEEN statement to match the format in the column, including the timestamp.
+
+3. How would you determine which movies have been rented the most?
+
+SELECT f.title, COUNT(rental_date)
+FROM film AS f
+INNER JOIN inventory AS i
+ON f.film_id = i.film_id
+INNER JOIN rental AS r
+ON i.inventory_id = r.inventory_id
+GROUP BY f.title
+ORDER BY COUNT(rental_date) DESC;
+
+--SELECT statement collects the titles from the film table and a count of the rental dates from the rental table. I used a 3-table INNER JOIN to connect the film table with the rental table through the inventory table, using the film_id and inventory_id columns. Then I GROUPED BY the film title and counted the number of rental dates each film title had associated with it, and used ORDER BY DESC to put the largest counts at the top of the results.
+
+4. Show how much each customer spent on movies (for all time). Order them from least to most.
+
+SELECT customer_ID, SUM(amount)
+FROM payment
+GROUP BY customer_id
+ORDER BY SUM(amount);
+
+--The SELECT statement pulls out the customer_IDs and the amounts they paid over time, adding up the amounts using the SUM() function. Then I GROUPED BY customer_id and ORDERED BY the function SUM.
+
+5. Which actor was in the most movies in 2006 (based on this dataset)? Be sure to alias the actor name and count as a more descriptive name. Order the results from most to least.
+
+SELECT actor_id AS Actor, COUNT(fa.film_id) AS Ouevre
+FROM film_actor AS fa
+INNER JOIN film AS f
+ON fa.film_id = f.film_id
+GROUP BY actor, f.release_year
+HAVING f.release_year = 2006
+ORDER BY COUNT(actor_id) DESC;
+
+--SELECT pulls in the actor_id column and a count of the films their id is associated with in the film_actor table. I joined that table with the film table on the film_id columns so that I could get the release year of 2006. Then I ordered by DESC so that the largest film counts would be at the top of the results.
+
+6. Write an explain plan for 4 and 5. Show the queries and explain what is happening in each one.
+
+--#4 -- EXPLAIN PLAN
+Code flow chart:
+SCAN --> AGGREGATE --> SORT
+
+--As a point of getting oriented, the query plan's outermost (top) row is the final step of the code flow. My query starts on the deepest indent in the explain plan, performing "Seq Scan" on the payment table's cost column, and then grouping by the customer_id and summing the costs associated with each customer_id (which is the HashAggregate step). Then the whole query result is sorted based on the sum(amount).
+
+"Sort  (cost=362.06..363.56 rows=599 width=34) (actual time=29.028..29.107 rows=599 loops=1)"
+"  Sort Key: (sum(amount))"
+"  Sort Method: quicksort  Memory: 53kB"
+"  ->  HashAggregate  (cost=326.94..334.43 rows=599 width=34) (actual time=17.868..18.327 rows=599 loops=1)"
+"        Group Key: customer_id"
+"        Batches: 1  Memory Usage: 297kB"
+"        ->  Seq Scan on payment  (cost=0.00..253.96 rows=14596 width=8) (actual time=0.045..3.133 rows=14596 loops=1)"
+"Planning Time: 0.416 ms"
+"Execution Time: 29.810 ms"
+
+--#5 -- EXPLAIN PLAN
+Code flow chart:
+Film table --> Hash(inner join) with Film_actor --> Aggregate --> Sort
+
+--The plan's overarching function is the Sort DESC (limited by Filter: ((release_year)::integer = 2006)) on the count of the film_ids when grouped by the actor, with the highest values at the top of the results. The Sort DESC happens after the film_actor and film tables are INNER JOINED (on Hash Cond) so that only film_actors who have at least one 2006 film associated with their name are included in the results.
+
+"Sort  (cost=242.28..242.78 rows=200 width=22) (actual time=81.490..81.530 rows=200 loops=1)"
+"  Sort Key: (count(fa.actor_id)) DESC"
+"  Sort Method: quicksort  Memory: 40kB"
+"  ->  HashAggregate  (cost=232.63..234.63 rows=200 width=22) (actual time=59.451..59.560 rows=200 loops=1)"
+"        Group Key: fa.actor_id, f.release_year"
+"        Batches: 1  Memory Usage: 64kB"
+"        ->  Hash Join  (cost=79.00..178.01 rows=5462 width=8) (actual time=3.393..52.723 rows=5462 loops=1)"
+"              Hash Cond: (fa.film_id = f.film_id)"
+"              ->  Seq Scan on film_actor fa  (cost=0.00..84.62 rows=5462 width=4) (actual time=0.048..1.088 rows=5462 loops=1)"
+"              ->  Hash  (cost=66.50..66.50 rows=1000 width=8) (actual time=2.032..2.033 rows=1000 loops=1)"
+"                    Buckets: 1024  Batches: 1  Memory Usage: 48kB"
+"                    ->  Seq Scan on film f  (cost=0.00..66.50 rows=1000 width=8) (actual time=0.028..1.405 rows=1000 loops=1)"
+"                          Filter: ((release_year)::integer = 2006)"
+"Planning Time: 7.364 ms"
+"Execution Time: 81.783 ms"
+
+7. What is the average rental rate per genre?
+
+SELECT CAST(AVG(f.rental_rate) AS MONEY), category_id
+FROM film AS f
+INNER JOIN film_category AS fc
+ON f.film_id = fc.film_id
+GROUP BY category_id
+ORDER BY AVG(f.rental_rate) DESC;
+
+--I joined the film and film_category tables, then grouped the results by category_id and took averages of those categories' rental rates, ordered so that the highest average rental rate is at the top.
+
+8. How many films were returned late? Early? On time?
+
+SELECT
+CASE WHEN "return_date"::date - "rental_date"::date < rental_duration THEN 'early'
+	WHEN "return_date"::date - "rental_date"::date = rental_duration THEN 'timely'
+	WHEN "return_date"::date - "rental_date"::date > rental_duration THEN 'late'
+	ELSE 'not returned' END
+	AS status,
+COUNT (*) AS returns
+FROM film AS f
+INNER JOIN inventory AS i
+ON f.film_id = i.film_id
+INNER JOIN rental AS r
+ON i.inventory_id = r.inventory_id
+GROUP BY status;
+
+--I joined the film, inventory, and rental tables and used the SELECT clause to determine the status of each rental return (which is possible when the dates are changed to the same format with casting). The rentals assigned to the resulting three statuses were then counted.
+
+9. Which categories are the most rented and what are their total sales?
+
+SELECT fc.category_id, COUNT(rental_date), SUM(rental_rate)
+FROM film_category AS fc
+INNER JOIN inventory AS i
+ON fc.film_id = i.film_id
+INNER JOIN film AS f
+ON f.film_id = i.film_id
+INNER JOIN rental AS r
+ON i.inventory_id = r.inventory_id
+GROUP BY fc.category_id
+ORDER BY COUNT(rental_date) DESC;
+
+--I joined the film, rental, film_category, and inventory tables, then grouped by category_id, ordered by how many rental dates each category had, and added up the rental_rates (or rental price) per category (with the highest total sale category at the top of the list).
+
+10. Create a view for 8 and a view for 9. Be sure to name them appropriately.
+
+--View for 8--
+CREATE VIEW on_time_returns AS
+SELECT
+CASE WHEN "return_date"::date - "rental_date"::date < rental_duration THEN 'early'
+	WHEN "return_date"::date - "rental_date"::date = rental_duration THEN 'timely'
+	WHEN "return_date"::date - "rental_date"::date > rental_duration THEN 'late'
+	ELSE 'not returned' END
+	AS status,
+COUNT (*) AS returns
+FROM film AS f
+INNER JOIN inventory AS i
+ON f.film_id = i.film_id
+INNER JOIN rental AS r
+ON i.inventory_id = r.inventory_id
+GROUP BY status;
+
+--View for 9--
+CREATE VIEW lucrative_categories AS
+SELECT fc.category_id, COUNT(rental_date), SUM(rental_rate)
+FROM film_category AS fc
+INNER JOIN inventory AS i
+ON fc.film_id = i.film_id
+INNER JOIN film AS f
+ON f.film_id = i.film_id
+INNER JOIN rental AS r
+ON i.inventory_id = r.inventory_id
+GROUP BY fc.category_id
+ORDER BY COUNT(rental_date) DESC;
+Bonus:Write a query that shows how many films were rented each month. Group them by category and month. 
